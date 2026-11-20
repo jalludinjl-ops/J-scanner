@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#153c78">
+<title>J-Scanner</title>
+<style>
+:root{color-scheme:dark;--blue:#1769c2;--ink:#f7f9ff;--muted:#c6d2e6}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 5%,#367ac9 0,transparent 35%),radial-gradient(circle at 90% 95%,#8d36a8 0,transparent 38%),linear-gradient(135deg,#102b55,#172b52 55%,#44265f);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--ink);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+main{max-width:680px;margin:0 auto;padding:22px 0 36px}.brand{font-size:13px;letter-spacing:.16em;color:#d9e8ff;font-weight:800}.panel{margin-top:16px;padding:20px;border:1px solid #ffffff40;border-radius:24px;background:#ffffff16;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 18px 55px #0004}h1{font-size:25px;margin:0 0 8px}.hint{font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 18px}#reader{width:100%;overflow:hidden;border-radius:16px;background:#050914;min-height:240px}#reader video{object-fit:cover!important}#reader img{display:none!important}#reader__dashboard_section_csr button{border:0;border-radius:10px;padding:10px 14px;background:#fff;color:#18375f;font-weight:700}#reader__dashboard_section_swaplink{color:#fff!important}.status{margin:14px 0 0;min-height:22px;color:#dce9ff;font-size:13px}.result{display:none;margin-top:16px;padding:14px;border-radius:14px;background:#ffffff18;border:1px solid #ffffff35}.result strong{display:block;font-size:22px;letter-spacing:.04em;overflow-wrap:anywhere;margin:6px 0 12px}.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{border:0;border-radius:12px;padding:13px 16px;font-size:14px;font-weight:800;cursor:pointer;flex:1}.primary{background:#fff;color:#1756a0}.secondary{background:#ffffff20;color:white;border:1px solid #ffffff40}.foot{font-size:11px;color:#c2cde0;margin-top:18px;line-height:1.5}.hidden{display:none!important}
+</style>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body><main>
+<div class="brand">J · SCANNER</div>
+<section class="panel">
+<h1>Live Barcode Scanner</h1>
+<p class="hint">Arahkan barcode atau QR ke kamera. Pemindaian berlangsung langsung—tanpa mengambil foto.</p>
+<div id="reader"></div>
+<p id="status" class="status" role="status">Menyiapkan pemindai…</p>
+<div id="resultBox" class="result"><span>Nomor terbaca</span><strong id="resultText"></strong><div class="actions"><button id="useBtn" class="btn primary">Gunakan nomor ini</button><button id="againBtn" class="btn secondary">Pindai lagi</button></div></div>
+<div class="actions" style="margin-top:14px"><button id="switchBtn" class="btn secondary">Ganti kamera</button><button id="closeBtn" class="btn secondary">Kembali</button></div>
+<p class="foot">Akses kamera hanya digunakan untuk pemindaian langsung. Jangan memasukkan atau menyimpan data pelanggan di halaman ini.</p>
+</section></main>
+<script>
+(function(){
+ const $=id=>document.getElementById(id);let scanner=null,cameras=[],cameraIndex=0,decoded='',returnUrl='',busy=false;
+ const params=new URLSearchParams(location.search);returnUrl=params.get('return')||'';
+ function status(t){$('status').textContent=t}
+ function digits(s){const all=String(s||'').match(/\d{8,15}/g);if(!all||!all.length)return '';all.sort((a,b)=>b.length-a.length);return all[0]}
+ async function stop(){if(scanner){try{if(scanner.isScanning)await scanner.stop()}catch(e){}try{await scanner.clear()}catch(e){}scanner=null}}
+ async function start(){await stop();$('resultBox').style.display='none';decoded='';busy=false;status('Meminta izin kamera…');try{scanner=new Html5Qrcode('reader',{verbose:false});if(!cameras.length)cameras=await Html5Qrcode.getCameras();if(!cameras.length)throw new Error('Kamera tidak ditemukan.');let cam=cameras[cameraIndex]||cameras[0];await scanner.start(cam.id,{fps:12,qrbox:(w,h)=>({width:Math.min(w*.86,520),height:Math.min(h*.32,170)}),aspectRatio:1.6,formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.ITF]},onScan,()=>{});status('Kamera aktif. Arahkan barcode ke kotak pemindaian.')}catch(e){status('Kamera gagal dibuka: '+(e.message||e)+' Pastikan halaman dibuka melalui HTTPS dan izin kamera Safari aktif.')}}
+ function onScan(text){if(busy)return;const n=digits(text);if(!n){status('Kode terbaca, tetapi tidak ditemukan rangkaian angka 8–15 digit. Coba arahkan ulang.');return}busy=true;decoded=n;$('resultText').textContent=n;$('resultBox').style.display='block';status('Barcode berhasil dibaca. Periksa nomor sebelum digunakan.');stop()}
+ function send(){if(!decoded)return;const payload={type:'JSCAN_RESULT',number:decoded};try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,'*');status('Nomor dikirim ke Dashboard.');setTimeout(()=>{if(returnUrl)location.href=returnUrl;else window.close()},500);return}}catch(e){}
+ if(returnUrl){const u=new URL(returnUrl);u.hash='jscan='+encodeURIComponent(decoded);location.href=u.toString();return}status('Nomor terbaca, tetapi halaman Dashboard belum terhubung. Kembali ke Dashboard dan masukkan nomor secara manual: '+decoded)}
+ $('useBtn').addEventListener('click',send);$('againBtn').addEventListener('click',start);$('switchBtn').addEventListener('click',async()=>{if(cameras.length<2){status('Hanya satu kamera terdeteksi.');return}cameraIndex=(cameraIndex+1)%cameras.length;await start()});$('closeBtn').addEventListener('click',async()=>{await stop();if(returnUrl)location.href=returnUrl;else if(history.length>1)history.back();else status('Pemindai ditutup. Kamu bisa kembali ke tab Dashboard.')});window.addEventListener('pagehide',stop);start();
+})();
+</script></body></html>
