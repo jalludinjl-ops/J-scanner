@@ -16,7 +16,14 @@ main{max-width:680px;margin:0 auto;padding:22px 0 36px}.brand{font-size:13px;let
 <div class="brand">J · SCANNER</div>
 <section class="panel">
 <h1>Live Barcode Scanner</h1>
-<p class="hint">Arahkan barcode atau QR ke kamera. Pemindaian berlangsung langsung—tanpa mengambil foto.</p>
+<p class="hint">Pilih jenis kode secara manual atau gunakan Auto Detect. Kamera akan memindai langsung tanpa mengambil foto.</p>
+<label for="scanMode" style="display:block;font-size:13px;font-weight:700;margin:0 0 8px;color:#e5efff">Jenis kode</label>
+<select id="scanMode" style="width:100%;padding:13px 14px;border-radius:12px;border:1px solid #ffffff55;background:#142b50;color:white;font-size:15px;margin-bottom:12px">
+<option value="auto">Auto Detect — QR + Barcode 1D</option>
+<option value="qr">QR Code — kotak</option>
+<option value="linear">Barcode 1D — garis panjang</option>
+</select>
+<div class="actions" style="margin-bottom:12px"><button id="startBtn" class="btn primary">Mulai Scan</button></div>
 <div id="reader"></div>
 <p id="status" class="status" role="status">Menyiapkan pemindai…</p>
 <div id="resultBox" class="result"><span>Nomor terbaca</span><strong id="resultText"></strong><div class="actions"><button id="useBtn" class="btn primary">Gunakan nomor ini</button><button id="againBtn" class="btn secondary">Pindai lagi</button></div></div>
@@ -25,15 +32,69 @@ main{max-width:680px;margin:0 auto;padding:22px 0 36px}.brand{font-size:13px;let
 </section></main>
 <script>
 (function(){
- const $=id=>document.getElementById(id);let scanner=null,cameras=[],cameraIndex=0,decoded='',returnUrl='',busy=false;
+ const $=id=>document.getElementById(id);
+ let scanner=null,cameras=[],cameraIndex=0,decoded='',returnUrl='',busy=false;
  const params=new URLSearchParams(location.search);returnUrl=params.get('return')||'';
+ const F=Html5QrcodeSupportedFormats;
+ const qrFormats=[F.QR_CODE];
+ const linearFormats=[F.CODE_128,F.CODE_39,F.CODE_93,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF,F.CODABAR];
  function status(t){$('status').textContent=t}
- function digits(s){const all=String(s||'').match(/\d{8,15}/g);if(!all||!all.length)return '';all.sort((a,b)=>b.length-a.length);return all[0]}
- async function stop(){if(scanner){try{if(scanner.isScanning)await scanner.stop()}catch(e){}try{await scanner.clear()}catch(e){}scanner=null}}
- async function start(){await stop();$('resultBox').style.display='none';decoded='';busy=false;status('Meminta izin kamera…');try{scanner=new Html5Qrcode('reader',{verbose:false});if(!cameras.length)cameras=await Html5Qrcode.getCameras();if(!cameras.length)throw new Error('Kamera tidak ditemukan.');let cam=cameras[cameraIndex]||cameras[0];await scanner.start(cam.id,{fps:12,qrbox:(w,h)=>({width:Math.min(w*.86,520),height:Math.min(h*.32,170)}),aspectRatio:1.6,formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.ITF]},onScan,()=>{});status('Kamera aktif. Arahkan barcode ke kotak pemindaian.')}catch(e){status('Kamera gagal dibuka: '+(e.message||e)+' Pastikan halaman dibuka melalui HTTPS dan izin kamera Safari aktif.')}}
- function onScan(text){if(busy)return;const n=digits(text);if(!n){status('Kode terbaca, tetapi tidak ditemukan rangkaian angka 8–15 digit. Coba arahkan ulang.');return}busy=true;decoded=n;$('resultText').textContent=n;$('resultBox').style.display='block';status('Barcode berhasil dibaca. Periksa nomor sebelum digunakan.');stop()}
- function send(){if(!decoded)return;const payload={type:'JSCAN_RESULT',number:decoded};try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,'*');status('Nomor dikirim ke Dashboard.');setTimeout(()=>{if(returnUrl)location.href=returnUrl;else window.close()},500);return}}catch(e){}
- if(returnUrl){const u=new URL(returnUrl);u.hash='jscan='+encodeURIComponent(decoded);location.href=u.toString();return}status('Nomor terbaca, tetapi halaman Dashboard belum terhubung. Kembali ke Dashboard dan masukkan nomor secara manual: '+decoded)}
- $('useBtn').addEventListener('click',send);$('againBtn').addEventListener('click',start);$('switchBtn').addEventListener('click',async()=>{if(cameras.length<2){status('Hanya satu kamera terdeteksi.');return}cameraIndex=(cameraIndex+1)%cameras.length;await start()});$('closeBtn').addEventListener('click',async()=>{await stop();if(returnUrl)location.href=returnUrl;else if(history.length>1)history.back();else status('Pemindai ditutup. Kamu bisa kembali ke tab Dashboard.')});window.addEventListener('pagehide',stop);start();
+ function digits(s){
+   const text=String(s||'').trim();
+   // Prefer a clearly delimited phone-like sequence; preserve leading zero.
+   const candidates=text.match(/(?:^|\D)(0\d{8,14})(?=\D|$)/g)||[];
+   if(candidates.length)return candidates.map(x=>x.replace(/\D/g,'')).sort((a,b)=>b.length-a.length)[0];
+   const all=text.match(/\d{8,15}/g);
+   if(!all||!all.length)return '';
+   return all.sort((a,b)=>b.length-a.length)[0];
+ }
+ async function stop(){
+   if(scanner){try{if(scanner.isScanning)await scanner.stop()}catch(e){}try{await scanner.clear()}catch(e){}scanner=null}
+ }
+ function selectedFormats(){
+   const mode=$('scanMode').value;
+   return mode==='qr'?qrFormats:mode==='linear'?linearFormats:[...qrFormats,...linearFormats];
+ }
+ async function start(){
+   await stop();$('resultBox').style.display='none';decoded='';busy=false;
+   status('Meminta izin kamera…');
+   try{
+     if(!window.Html5Qrcode)throw new Error('Library pemindai belum termuat. Periksa koneksi internet.');
+     scanner=new Html5Qrcode('reader',{verbose:false});
+     if(!cameras.length)cameras=await Html5Qrcode.getCameras();
+     if(!cameras.length)throw new Error('Kamera tidak ditemukan.');
+     let cam=cameras[cameraIndex]||cameras[0];
+     await scanner.start(cam.id,{
+       fps:12,
+       qrbox:(w,h)=>({width:Math.min(w*.88,560),height:Math.min(h*.42,220)}),
+       aspectRatio:1.6,
+       formatsToSupport:selectedFormats()
+     },onScan,()=>{});
+     status('Kamera aktif. Arahkan jenis kode yang dipilih ke kotak pemindaian.');
+   }catch(e){status('Kamera gagal dibuka: '+(e.message||e)+' Pastikan halaman HTTPS dan izin kamera Safari aktif.')}
+ }
+ function onScan(text){
+   if(busy)return;
+   const n=digits(text);
+   if(!n){status('Kode terbaca, tetapi belum ditemukan nomor 8–15 digit. Coba mode lain atau arahkan ulang.');return}
+   busy=true;decoded=n;$('resultText').textContent=n;$('resultBox').style.display='block';
+   status('Kode berhasil dibaca. Periksa nomor dan angka 0 di depannya sebelum digunakan.');
+   stop();
+ }
+ function send(){
+   if(!decoded)return;
+   const payload={type:'JSCAN_RESULT',number:decoded,raw:decoded};
+   try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,'*');status('Nomor dikirim ke Dashboard.');setTimeout(()=>{if(returnUrl)location.href=returnUrl;else window.close()},500);return}}catch(e){}
+   if(returnUrl){const u=new URL(returnUrl);u.hash='jscan='+encodeURIComponent(decoded);location.href=u.toString();return}
+   status('Nomor terbaca. Kembali ke Dashboard dan masukkan nomor ini: '+decoded);
+ }
+ $('startBtn').addEventListener('click',start);
+ $('scanMode').addEventListener('change',()=>{if(scanner&&scanner.isScanning)start()});
+ $('useBtn').addEventListener('click',send);
+ $('againBtn').addEventListener('click',start);
+ $('switchBtn').addEventListener('click',async()=>{if(cameras.length<2){status('Hanya satu kamera terdeteksi.');return}cameraIndex=(cameraIndex+1)%cameras.length;await start()});
+ $('closeBtn').addEventListener('click',async()=>{await stop();if(returnUrl)location.href=returnUrl;else if(history.length>1)history.back();else status('Pemindai ditutup. Kamu bisa kembali ke tab Dashboard.')});
+ window.addEventListener('pagehide',stop);
+ status('Pilih jenis kode, lalu tekan Mulai Scan.');
 })();
 </script></body></html>
