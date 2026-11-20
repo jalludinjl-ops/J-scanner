@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#153c78">
-<title>J-Scanner</title>
+<title>J-Scanner V3</title>
 <style>
 :root{color-scheme:dark;--blue:#1769c2;--ink:#f7f9ff;--muted:#c6d2e6}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 5%,#367ac9 0,transparent 35%),radial-gradient(circle at 90% 95%,#8d36a8 0,transparent 38%),linear-gradient(135deg,#102b55,#172b52 55%,#44265f);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--ink);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
@@ -35,6 +35,9 @@ main{max-width:680px;margin:0 auto;padding:22px 0 36px}.brand{font-size:13px;let
  const $=id=>document.getElementById(id);
  let scanner=null,cameras=[],cameraIndex=0,decoded='',returnUrl='',busy=false;
  const params=new URLSearchParams(location.search);returnUrl=params.get('return')||'';
+ const brand=params.get('brand')||'';
+ const initialMode=params.get('mode')||'auto';
+ if(['auto','qr','linear'].includes(initialMode))$('scanMode').value=initialMode;
  const F=Html5QrcodeSupportedFormats;
  const qrFormats=[F.QR_CODE];
  const linearFormats=[F.CODE_128,F.CODE_39,F.CODE_93,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF,F.CODABAR];
@@ -83,10 +86,23 @@ main{max-width:680px;margin:0 auto;padding:22px 0 36px}.brand{font-size:13px;let
  }
  function send(){
    if(!decoded)return;
-   const payload={type:'JSCAN_RESULT',number:decoded,raw:decoded};
-   try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,'*');status('Nomor dikirim ke Dashboard.');setTimeout(()=>{if(returnUrl)location.href=returnUrl;else window.close()},500);return}}catch(e){}
-   if(returnUrl){const u=new URL(returnUrl);u.hash='jscan='+encodeURIComponent(decoded);location.href=u.toString();return}
-   status('Nomor terbaca. Kembali ke Dashboard dan masukkan nomor ini: '+decoded);
+   const payload={type:'JSCAN_RESULT',number:decoded,brand:brand,source:'j-scanner'};
+   try{
+     if(window.opener&&!window.opener.closed){
+       const targetOrigin=returnUrl?new URL(returnUrl).origin:'https://script.google.com';
+       window.opener.postMessage(payload,targetOrigin);
+       status('Nomor dikirim ke Dashboard. Tab scanner akan ditutup.');
+       setTimeout(()=>window.close(),450);
+       return;
+     }
+   }catch(e){}
+   if(returnUrl){
+     const u=new URL(returnUrl);u.hash='jscan='+encodeURIComponent(decoded);
+     status('Mengembalikan nomor ke Dashboard…');
+     location.href=u.toString();
+     return;
+   }
+   status('Nomor terbaca: '+decoded+'. Kembali ke Dashboard dan masukkan nomor ini.');
  }
  $('startBtn').addEventListener('click',start);
  $('scanMode').addEventListener('change',()=>{if(scanner&&scanner.isScanning)start()});
